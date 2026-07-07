@@ -23,6 +23,9 @@ namespace WindowsFormsApp1
             this.KeyPreview = true;
 
             _scene.Screen = this;
+            _scene.MainCamera = new Camera(_scene,
+                new Vector2(this.ClientRectangle.X, this.ClientRectangle.Y), 
+                new Vector2(this.ClientRectangle.Width, this.ClientRectangle.Height));
 
             this.KeyDown += (s, e) => _scene.Input.PressedKeys.Add(e.KeyCode);
             this.KeyUp += (s, e) => _scene.Input.PressedKeys.Remove(e.KeyCode);
@@ -32,8 +35,14 @@ namespace WindowsFormsApp1
             timer.Tick += UpdateGeral;
             timer.Start();
 
-            _scene.AddObject(new Player(_scene, Color.Green, new Vector2(32,32), new Vector2(32,32), new Vector2(this.ClientRectangle.Width / 2 - 16, this.ClientRectangle.Height / 2 + 16)));
-            _scene.AddObject(new Wall(_scene, Color.Gray, new Vector2(128,32), new Vector2(128,32), new Vector2(this.ClientRectangle.Width / 2 - 64, this.ClientRectangle.Height / 2 + 48)));
+            var player = new Player(_scene, Color.Green, new Vector2(32, 32), new Vector2(32, 32), new Vector2(this.ClientRectangle.Width / 2 - 16, this.ClientRectangle.Height / 2 + 16));
+            var wall_1 = new Wall(_scene, Color.Gray, new Vector2(128, 32), new Vector2(128, 32), new Vector2(this.ClientRectangle.Width / 2 - 64, this.ClientRectangle.Height / 2 + 48));
+
+            _scene.AddObject(player);
+            _scene.AddObject(wall_1);
+
+            _scene.MainCamera.AllowFollow = true;
+            _scene.MainCamera.Target = player;
         }
 
         private void UpdateGeral(object sender, EventArgs e)
@@ -50,15 +59,15 @@ namespace WindowsFormsApp1
             foreach (var obj in _scene.GetObjects())
                 obj.Update(delta);
 
+            _scene.MainCamera.Update(delta);
+
             this.Invalidate();
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
-
-            foreach (var obj in _scene.GetObjects())
-                obj.Draw(e.Graphics);
+            _scene.Render(e.Graphics);
         }
     }
 
@@ -71,8 +80,8 @@ namespace WindowsFormsApp1
 
         private float _speed = 6f;
 
-        public Player(Scene scene, Color cor, Vector2 size, Vector2 collisionSize, Vector2 position) 
-            : base(scene, cor, size, collisionSize, position) 
+        public Player(Scene scene, Color color, Vector2 size, Vector2 collisionSize, Vector2 position) 
+            : base(scene, color, size, collisionSize, position) 
         {
         }
 
@@ -90,7 +99,7 @@ namespace WindowsFormsApp1
 
     public class Wall : Entity 
     {
-        public Wall(Scene scene, Color cor, Vector2 size, Vector2 collisionSize, Vector2 position) : base(scene, cor, size, collisionSize, position)
+        public Wall(Scene scene, Color color, Vector2 size, Vector2 collisionSize, Vector2 position) : base(scene, color, size, collisionSize, position)
         {
         }
 
@@ -99,20 +108,13 @@ namespace WindowsFormsApp1
         }
     }
 
-    public abstract class Entity : GameObject
-    {
-        private Brush _brush;
+    public abstract class Entity : GameObject 
+    { 
 
-        public Entity(Scene scene, Color cor, Vector2 size, Vector2 collisionSize, Vector2 position) : base(scene, position, size, collisionSize)
+        public Entity(Scene scene, Color color, Vector2 size, Vector2 collisionSize, Vector2 position) : base(scene, position, size, collisionSize)
         {
-            _brush = new SolidBrush(cor);
-        }
-
-       
-        public override void Draw(Graphics g) 
-        {
-            g.FillRectangle(_brush, Position.X, Position.Y, Size.X, Size.Y);
-        }
+            GraphicsComponent = new GraphicsComponent(color);
+        }    
     }
 
     public class Collision 
@@ -147,6 +149,8 @@ namespace WindowsFormsApp1
         public Vector2 Position;
         public Collision BoxCollider;
         public Scene _scene;
+        public GraphicsComponent GraphicsComponent;
+
         public Input Input { get => _scene.Input; }
 
 
@@ -159,7 +163,6 @@ namespace WindowsFormsApp1
         }
 
         public abstract void Update(float delta);
-        public abstract void Draw(Graphics g);
 
         public void MoveAndCollide(Vector2 velocity)
         {
@@ -192,6 +195,8 @@ namespace WindowsFormsApp1
     public class Scene
     {
         public Form Screen;
+        public Camera MainCamera;
+        public Renderer Renderer = new Renderer();
         public Input Input = new Input(); 
         private readonly List<GameObject> objects = new List<GameObject>();
 
@@ -216,7 +221,12 @@ namespace WindowsFormsApp1
         {
             return objects.ToList();
         }
-
+        
+        public void Render(Graphics g) 
+        {
+            Renderer.Render(g, MainCamera, objects);
+        }
+        
         public RayCastResult RayCast(GameObject parent, Vector2 origin, Vector2 direction, int size,
             List<GameObject> excludeList = null, List<GameObject> FilterList = null,
             Type type = null, bool selfCollide = false)
@@ -226,7 +236,7 @@ namespace WindowsFormsApp1
             for(int i = 0; i < size; i++) 
             {
                 var obj = GetCollider(ray);
-                if (obj != null) 
+                if (obj != null && obj.BoxCollider.Active) 
                 {
                     if (FilterList != null) 
                     {
@@ -365,16 +375,7 @@ namespace WindowsFormsApp1
 
         public override void Update(float delta)
         {
-        }
-
-        public override void Draw(Graphics g)
-        {
-            if (!_visible)
-                return;
-
-            g.FillRectangle(_rayColor, Position.X, Position.Y, Size.X, Size.Y);
-        }
-        
+        }       
     }
 
     public struct RayCastResult 
@@ -392,6 +393,72 @@ namespace WindowsFormsApp1
             Size = size;
             HittedTarget = hittedTarget;
             Found = hittedTarget != null;
+        }
+    }
+
+    public class Camera : GameObject
+    {   
+        public float Zoom = 1f;
+
+        public GameObject Target;
+        public bool AllowFollow = false;
+
+        public Camera(Scene scene, Vector2 position, Vector2 size) : base(scene, position, size, size)
+        {
+            Position = position;
+            Size = size;
+            BoxCollider.Active = false;
+        }
+
+        public Vector2 WorldToScreen(Vector2 worldPos)
+        {
+            return (worldPos - Position) * Zoom;
+        }
+
+        public Vector2 ScreenToWorld(Vector2 screenPos)
+        {
+            return screenPos / Zoom + Position;
+        }
+
+        public override void Update(float delta)
+        {
+            if (AllowFollow && Target != null && Target != this)
+            {
+                Vector2 objPosition = Target.GetCenteredPosition();
+                Position = objPosition - (Size / 2f) / Zoom;
+            }
+        }
+    }
+
+    public class GraphicsComponent
+    {
+        public bool IsVisivle = true;
+        public Brush brush;
+
+        public GraphicsComponent(Color color) 
+        {
+            brush = new SolidBrush(color);
+        }
+    }
+
+    public class Renderer 
+    {
+        public void Render(Graphics g, Camera camera, List<GameObject> objects) 
+        {
+            foreach(var item in objects) 
+            {
+                var pos = camera.WorldToScreen(item.Position);
+                var size = item.Size * camera.Zoom;
+
+                if (item.GraphicsComponent != null)
+                {
+                    if ((item.Position.X >= camera.Position.X && item.Position.X < camera.Position.X + camera.Size.X) &&
+                        (item.Position.Y >= camera.Position.Y && item.Position.Y < camera.Position.Y + camera.Size.Y)) 
+                    {
+                        g.FillRectangle(item.GraphicsComponent.brush, pos.X, pos.Y, size.X, size.Y);
+                    }
+                }
+            }
         }
     }
 }
