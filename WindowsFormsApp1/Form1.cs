@@ -4,21 +4,28 @@ using System.Drawing;
 using System.Linq;
 using System.Numerics;
 using System.Windows.Forms;
+using System.Drawing.Drawing2D;
+using physics.Engine.Helpers;
 
 namespace WindowsFormsApp1
 {
     public partial class Form1 : Form
     {
         private Scene _scene = new Scene();
-        private DateTime? lastTime;
-        private float delta = 1;
+        private Graphics gfxBuffer;
+        private Bitmap bmpBuffer;
+        private readonly FastLoop _fastLoop;
+
 
         public Form1()
         {
             InitializeComponent();
             this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
-            this.KeyPreview = true;
+
+            GenerateGfxBuffer();
+
             this.BackColor = Color.SkyBlue;
+            this.KeyPreview = true;
 
             _scene.Screen = this;
             _scene.MainCamera = new Camera(new Vector2(this.ClientRectangle.X, this.ClientRectangle.Y),
@@ -33,12 +40,12 @@ namespace WindowsFormsApp1
             this.MouseMove += (s, e) => _scene.Input.UpdateMouse(e.X, e.Y);
             this.MouseDown += (s, e) => _scene.Input.UpdateMouseButtonState(e.Button, true);
             this.MouseUp += (s, e) => _scene.Input.UpdateMouseButtonState(e.Button, false);
-            this.MouseWheel += (s, e) => _scene.Input.MouseDelta = e.Delta;
+            this.MouseWheel += (s, e) => _scene.Input.MouseDelta += e.Delta;
 
-            Timer timer = new Timer();
-            timer.Interval = 1000 / 60;
-            timer.Tick += WorldUpdate;
-            timer.Start();
+            //Timer timer = new Timer();
+            //timer.Interval = 1000 / 60;
+            //timer.Tick += WorldUpdate;
+            //timer.Start();
 
             var tileMap = new TileMap();
 
@@ -97,12 +104,12 @@ namespace WindowsFormsApp1
                     }
                 }
             }
+
+            _fastLoop = new FastLoop(WorldUpdate);
         }
 
-        private void WorldUpdate(object sender, EventArgs e)
+        private void WorldUpdate(double deltaTime)
         {
-            updateDelta();
-
             if (_scene.Input.IsKeyJustPressed(Keys.F1))
                 DebugStats.ShowDebug = !DebugStats.ShowDebug;
 
@@ -126,28 +133,24 @@ namespace WindowsFormsApp1
                 }
             }
 
-            _scene.Update(delta);
+            _scene.Update((float)deltaTime);
             this.Invalidate();
             UpdateDebugStats();
-        }
 
-        private void updateDelta()
-        {
-            DebugStats.FPS++;
-            delta = 1;
-
-            DateTime now = DateTime.Now;
-
-            if (lastTime.HasValue)
-                delta = (float)(now - lastTime.Value).TotalSeconds;
-
-            lastTime = now;
+            if (_scene.Input.IsMouseOnScreen) 
+            {
+                Console.WriteLine($"X: {_scene.Input.CurrentMousePosition.X} Y: {_scene.Input.CurrentMousePosition.Y}");
+                Console.WriteLine($"delta: {_scene.Input.GetScrollWheelDelta()}, LB: {_scene.Input.IsMouseButtonPressed(MouseButtons.Left)} RB: {_scene.Input.IsMouseButtonPressed(MouseButtons.Right)}");   
+            }
         }
 
         private void UpdateDebugStats()
         {
             if (!DebugStats.InitFpsMetter.HasValue)
                 DebugStats.InitFpsMetter = DateTime.Now;
+            
+            DebugStats.FPS++;
+
 
             if (DateTime.Now - DebugStats.InitFpsMetter.Value > TimeSpan.FromSeconds(1))
             {
@@ -173,7 +176,27 @@ namespace WindowsFormsApp1
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
-            _scene.Draw(e.Graphics);
+            _scene.DrawScene(gfxBuffer);
+            e.Graphics.DrawImage(bmpBuffer, new Point(0,0));
+            _scene.DrawDebugOverLay(e.Graphics);
+        }
+
+        private void GenerateGfxBuffer()
+        {
+            bmpBuffer = new Bitmap(Size.Width, Size.Height);
+            gfxBuffer = Graphics.FromImage(bmpBuffer);
+
+            gfxBuffer.CompositingMode = CompositingMode.SourceCopy;
+            gfxBuffer.CompositingQuality = CompositingQuality.HighSpeed;
+            gfxBuffer.InterpolationMode = InterpolationMode.NearestNeighbor;
+            gfxBuffer.PixelOffsetMode = PixelOffsetMode.Half;
+            gfxBuffer.SmoothingMode = SmoothingMode.HighSpeed;
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            GenerateGfxBuffer();
         }
     }
 
@@ -501,10 +524,15 @@ namespace WindowsFormsApp1
             }
         }
 
-        public void Draw(Graphics g)
+        public void DrawScene(Graphics g)
         {
+            g.Clear(Screen.BackColor);
             Render.Draw(g, MainCamera, GetObjects());
 
+        }
+
+        public void DrawDebugOverLay(Graphics g) 
+        {
             if (!DebugStats.ShowDebug) return;
 
             g.DrawString("DEBUG", DebugStats.Font, DebugStats.Brush, 1, 1);
@@ -515,6 +543,7 @@ namespace WindowsFormsApp1
             g.DrawString($"Draw Cells: {DebugStats.Show_DrawCells}", DebugStats.Font, DebugStats.Brush, 1, (1 + DebugStats.Font.Height + DebugStats.TextMargin) * 5);
             g.DrawString($"Visible Cells: {DebugStats.Show_VisibileCells}", DebugStats.Font, DebugStats.Brush, 1, (1 + DebugStats.Font.Height + DebugStats.TextMargin) * 6);
             g.DrawString($"Invisible Cells: {DebugStats.Show_InvisibileCells}", DebugStats.Font, DebugStats.Brush, 1, (1 + DebugStats.Font.Height + DebugStats.TextMargin) * 7);
+
         }
 
         public RayCastResult RayCast(GameObject parent, Vector2 origin, Vector2 direction, int size,
@@ -708,7 +737,6 @@ namespace WindowsFormsApp1
         public HashSet<MouseButtons> PreviewMouseButtons = new HashSet<MouseButtons>();
 
         public int MouseDelta = 0;
-
         public bool IsMouseOnScreen = false;
 
         public Vector2 CurrentMousePosition = Vector2.Zero;
@@ -737,7 +765,7 @@ namespace WindowsFormsApp1
         public Vector2 GetMousePositionInWorld(Camera camera)
             => camera.ScreenToWorld(CurrentMousePosition);
 
-        public Vector2 GetMouseDelta()
+        public Vector2 GetMousePositionDelta()
             => CurrentMousePosition - PreviewsMousePosition;
 
         public float GetScrollWheelDelta()
