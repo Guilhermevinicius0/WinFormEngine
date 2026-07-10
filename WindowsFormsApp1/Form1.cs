@@ -1,21 +1,21 @@
-﻿using System;
+﻿using physics.Engine.Helpers;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Numerics;
 using System.Windows.Forms;
-using System.Drawing.Drawing2D;
-using physics.Engine.Helpers;
 
 namespace WindowsFormsApp1
 {
-    public partial class Form1 : Form
+    public partial class Form1 : Form, IScreen
     {
         private Scene _scene = new Scene();
         private Graphics gfxBuffer;
         private Bitmap bmpBuffer;
         private readonly FastLoop _fastLoop;
-
+        Player player;
 
         public Form1()
         {
@@ -42,11 +42,6 @@ namespace WindowsFormsApp1
             this.MouseUp += (s, e) => _scene.Input.UpdateMouseButtonState(e.Button, false);
             this.MouseWheel += (s, e) => _scene.Input.MouseDelta += e.Delta;
 
-            //Timer timer = new Timer();
-            //timer.Interval = 1000 / 60;
-            //timer.Tick += WorldUpdate;
-            //timer.Start();
-
             var tileMap = new TileMap();
 
             int rowCount = tileMap.Tiles.GetLength(0);
@@ -63,7 +58,7 @@ namespace WindowsFormsApp1
 
                         var color = Color.Gray;
 
-                        switch (tileMap.Tiles[i, j]) 
+                        switch (tileMap.Tiles[i, j])
                         {
                             case 1:
                                 color = Color.Chocolate;
@@ -84,14 +79,14 @@ namespace WindowsFormsApp1
                         new Vector2(tileMap.TileSize.X, tileMap.TileSize.Y),
                         new Vector2(x, y));
 
-                        _scene.AddObject(wall);
+                        _scene.AddObject(wall, true);
                     }
                     else if (tileMap.Tiles[i, j] == 9)
                     {
                         float x = (j + 1) * 32;
                         float y = ClientRectangle.Height - ((rowCount - i - 1) * 33);
 
-                        var player = new Player(_scene, Color.Green,
+                        player = new Player(_scene, Color.Green,
                             new Vector2(32, 32),
                             new Vector2(32, 32),
                             new Vector2(x, y));
@@ -108,7 +103,28 @@ namespace WindowsFormsApp1
             _fastLoop = new FastLoop(WorldUpdate);
         }
 
-        private void WorldUpdate(double deltaTime)
+        public void WorldUpdate(double deltaTime)
+        {
+            CheckWorldInputs();
+            _scene.ProcessPhysics((float)deltaTime);
+            Draw();
+            UpdateDebugStats();
+        }
+
+        public void Draw()
+        {
+            this.Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            _scene.DrawScene(gfxBuffer);
+            e.Graphics.DrawImage(bmpBuffer, new Point(0, 0));
+            _scene.DrawDebugOverLay(e.Graphics);
+        }
+
+        private void CheckWorldInputs()
         {
             if (_scene.Input.IsKeyJustPressed(Keys.F1))
                 DebugStats.ShowDebug = !DebugStats.ShowDebug;
@@ -128,19 +144,9 @@ namespace WindowsFormsApp1
                                         new Vector2(x * 34, y * 34));
 
                         wall.ZIndex = 1;
-                        _scene.AddObject(wall);
+                        _scene.AddObject(wall, true);
                     }
                 }
-            }
-
-            _scene.Update((float)deltaTime);
-            this.Invalidate();
-            UpdateDebugStats();
-
-            if (_scene.Input.IsMouseOnScreen) 
-            {
-                Console.WriteLine($"X: {_scene.Input.CurrentMousePosition.X} Y: {_scene.Input.CurrentMousePosition.Y}");
-                Console.WriteLine($"delta: {_scene.Input.GetScrollWheelDelta()}, LB: {_scene.Input.IsMouseButtonPressed(MouseButtons.Left)} RB: {_scene.Input.IsMouseButtonPressed(MouseButtons.Right)}");   
             }
         }
 
@@ -148,7 +154,7 @@ namespace WindowsFormsApp1
         {
             if (!DebugStats.InitFpsMetter.HasValue)
                 DebugStats.InitFpsMetter = DateTime.Now;
-            
+
             DebugStats.FPS++;
 
 
@@ -173,14 +179,6 @@ namespace WindowsFormsApp1
             }
         }
 
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            base.OnPaint(e);
-            _scene.DrawScene(gfxBuffer);
-            e.Graphics.DrawImage(bmpBuffer, new Point(0,0));
-            _scene.DrawDebugOverLay(e.Graphics);
-        }
-
         private void GenerateGfxBuffer()
         {
             bmpBuffer = new Bitmap(Size.Width, Size.Height);
@@ -197,7 +195,23 @@ namespace WindowsFormsApp1
         {
             base.OnResize(e);
             GenerateGfxBuffer();
+
+            if (_scene?.MainCamera != null)
+                _scene.MainCamera.Size = new Vector2(this.ClientRectangle.Width, this.ClientRectangle.Height);
         }
+
+        public Vector2 GetSize()
+        {
+            return new Vector2(this.ClientRectangle.Width, this.ClientRectangle.Height);
+        }
+    }
+
+    public interface IScreen
+    {
+        Vector2 GetSize();
+        void WorldUpdate(double deltaTime);
+        void Draw();
+        Color BackColor { get; set; }
     }
 
     public class Player : Entity
@@ -227,7 +241,7 @@ namespace WindowsFormsApp1
         }
 
         public override void OnDestroy()
-        { 
+        {
         }
     }
 
@@ -359,13 +373,13 @@ namespace WindowsFormsApp1
             return _scene.RayCast(this, origin, direction, size, excludeList, FilterList, type, selfCollide);
         }
 
-        public void AddTag(string tag) 
+        public void AddTag(string tag)
         {
             Tags.Add(tag);
             _scene.AddTaggedObject(this, tag);
         }
 
-        public void RemoveTag(string tag) 
+        public void RemoveTag(string tag)
         {
             if (Tags.Contains(tag))
             {
@@ -374,12 +388,12 @@ namespace WindowsFormsApp1
             }
         }
 
-        public Vector2 GetDistanceTo(GameObject target) 
+        public Vector2 GetDistanceTo(GameObject target)
         {
             return _scene.GetDistanceBetweenObjects(this, target);
         }
 
-        public Vector2 GetNormalTo(GameObject target) 
+        public Vector2 GetNormalTo(GameObject target)
         {
             return _scene.GetNormalBetweenObjects(this, target);
         }
@@ -414,20 +428,25 @@ namespace WindowsFormsApp1
 
     public class Scene
     {
-        public Form Screen;
+        public IScreen Screen;
         public Camera MainCamera;
         public RenderComponent Render = new RenderComponent();
         public InputComponent Input = new InputComponent();
 
-        private readonly List<GameObject> Objects = new List<GameObject>();
+        private readonly List<GameObject> DynamicObjects = new List<GameObject>();
+        private readonly List<GameObject> StaticObjects = new List<GameObject>();
+        private readonly List<GameObject> AllObjects = new List<GameObject>();
+
         private Dictionary<string, HashSet<GameObject>> TaggedObjects = new Dictionary<string, HashSet<GameObject>>();
 
-        private Queue<GameObject> ToAdd = new Queue<GameObject>();
+        private SpatialGrid _grid = new SpatialGrid();
+
+        private Queue<(GameObject obj, bool IsStatic)> ToAdd = new Queue<(GameObject, bool)>();
         private Queue<GameObject> ToRemove = new Queue<GameObject>();
 
-        private int MaxQueueIterations = 1000;
+        private int MaxQueueIterations = 100000; // use -1 to set no limit per frame, low limits drops more fps with massive operations
 
-        public void Update(float delta) 
+        public void ProcessPhysics(float delta)
         {
             ProcessQueues();
             ProcessObjects(delta);
@@ -440,18 +459,37 @@ namespace WindowsFormsApp1
             if (ToAdd.Count == 0 && ToRemove.Count == 0)
                 return;
 
-            for (int i = 0; i < MaxQueueIterations; i++)
+            int totalToProcess = MaxQueueIterations >= 0 ? MaxQueueIterations : ToAdd.Count + ToRemove.Count;
+
+            for (int i = 0; i < totalToProcess; i++)
             {
                 if (ToAdd.Count > 0)
                 {
-                    var obj = ToAdd.Dequeue();
-                    int index = Objects.BinarySearch(obj, Comparer<GameObject>.Create((a, b) => a.ZIndex.CompareTo(b.ZIndex)));
-                    
-                    if (index < 0) 
-                        index = ~index;
-                    
-                    Objects.Insert(index, obj);
-                    obj.OnCreation();
+                    var item = ToAdd.Dequeue();
+
+                    if (item.IsStatic)
+                    {
+                        int index = StaticObjects.BinarySearch(item.obj, Comparer<GameObject>.Create((a, b) => a.ZIndex.CompareTo(b.ZIndex)));
+
+                        if (index < 0)
+                            index = ~index;
+
+                        StaticObjects.Insert(index, item.obj);
+                        AllObjects.Insert(index, item.obj);
+                    }
+                    else
+                    {
+                        int index = DynamicObjects.BinarySearch(item.obj, Comparer<GameObject>.Create((a, b) => a.ZIndex.CompareTo(b.ZIndex)));
+
+                        if (index < 0)
+                            index = ~index;
+
+                        DynamicObjects.Insert(index, item.obj);
+                        AllObjects.Insert(index, item.obj);
+                    }
+
+                    _grid.AddObject(item.obj);
+                    item.obj.OnCreation();
                     DebugStats.Objects++;
                 }
 
@@ -459,9 +497,19 @@ namespace WindowsFormsApp1
                 {
                     var obj = ToRemove.Dequeue();
 
-                    if (Objects.Contains(obj))
+                    if (DynamicObjects.Contains(obj))
                     {
-                        Objects.Remove(obj);
+                        DynamicObjects.Remove(obj);
+                        AllObjects.Remove(obj);
+                        _grid.RemoveObject(obj);
+                        obj.OnDestroy();
+                        DebugStats.Objects--;
+                    }
+                    else if (StaticObjects.Contains(obj))
+                    {
+                        StaticObjects.Remove(obj);
+                        AllObjects.Remove(obj);
+                        _grid.RemoveObject(obj);
                         obj.OnDestroy();
                         DebugStats.Objects--;
                     }
@@ -472,20 +520,23 @@ namespace WindowsFormsApp1
             }
         }
 
-        public void ProcessObjects(float delta) 
+        public void ProcessObjects(float delta)
         {
             GameObject current = null;
-
-            for (int i = 0; i < Objects.Count; i++)
+            Vector2 previewsPosition = Vector2.Zero;
+            for (int i = 0; i < DynamicObjects.Count; i++)
             {
-                current = Objects[i];
+                current = DynamicObjects[i];
+                previewsPosition = current.Position;
+
                 current.Update(delta);
+                _grid.UpdateObjectCell(current, previewsPosition);
             }
         }
 
-        public void AddObject(GameObject obj)
+        public void AddObject(GameObject obj, bool IsStatic = false)
         {
-            ToAdd.Enqueue(obj);
+            ToAdd.Enqueue((obj, IsStatic));
         }
 
         public void DestroyObject(GameObject obj)
@@ -495,10 +546,10 @@ namespace WindowsFormsApp1
 
         public List<GameObject> GetObjects()
         {
-            return Objects;
+            return AllObjects;
         }
 
-        public List<GameObject> GetTaggedObjects(string tag) 
+        public List<GameObject> GetTaggedObjects(string tag)
         {
             if (!TaggedObjects.ContainsKey(tag))
                 return new List<GameObject>();
@@ -506,16 +557,16 @@ namespace WindowsFormsApp1
             return TaggedObjects[tag].ToList();
         }
 
-        public void AddTaggedObject(GameObject obj, string tag) 
+        public void AddTaggedObject(GameObject obj, string tag)
         {
             if (!TaggedObjects.ContainsKey(tag))
                 TaggedObjects.Add(tag, new HashSet<GameObject>());
-            
+
             TaggedObjects[tag].Add(obj);
         }
         public void RemoveTaggedObject(GameObject obj, string tag)
         {
-            if (TaggedObjects.ContainsKey(tag)) 
+            if (TaggedObjects.ContainsKey(tag))
             {
                 TaggedObjects[tag].Remove(obj);
 
@@ -526,12 +577,12 @@ namespace WindowsFormsApp1
 
         public void DrawScene(Graphics g)
         {
+            int radius = (int)(Math.Max(MainCamera.Size.X, MainCamera.Size.Y) / _grid.CellSize);
             g.Clear(Screen.BackColor);
-            Render.Draw(g, MainCamera, GetObjects());
-
+            Render.Draw(g, MainCamera, _grid.GetNearbyObjects(MainCamera.GetCenteredPosition(), radius));
         }
 
-        public void DrawDebugOverLay(Graphics g) 
+        public void DrawDebugOverLay(Graphics g)
         {
             if (!DebugStats.ShowDebug) return;
 
@@ -592,9 +643,9 @@ namespace WindowsFormsApp1
             obj.Position.X += velocity.X;
             while (CheckWorldColision(obj) && iterations < MaxIterations)
             {
-                var hitted = GetCollider(obj.BoxCollider);
-                
-                if (hitted == null) 
+                var hitted = GetCollider(obj);
+
+                if (hitted == null)
                     break;
 
                 float direction = velocity.X != 0 ? Math.Sign(velocity.X) : 1;
@@ -607,7 +658,7 @@ namespace WindowsFormsApp1
                     iterations++;
                     continue;
                 }
-                
+
                 obj.Position.X -= overlap * direction;
                 iterations++;
             }
@@ -617,13 +668,13 @@ namespace WindowsFormsApp1
             obj.Position.Y += velocity.Y;
             while (CheckWorldColision(obj) && iterations < MaxIterations)
             {
-                var hitted = GetCollider(obj.BoxCollider);
-                
+                var hitted = GetCollider(obj);
+
                 if (hitted == null)
                     break;
-                
+
                 float direction = velocity.Y != 0 ? Math.Sign(velocity.Y) : 1;
-                float overlap = (obj.BoxCollider.Size.Y / 2f) + (hitted.BoxCollider.Size.Y / 2f) - 
+                float overlap = (obj.BoxCollider.Size.Y / 2f) + (hitted.BoxCollider.Size.Y / 2f) -
                                 Math.Abs(obj.GetCenteredPosition().Y - hitted.GetCenteredPosition().Y);
 
                 if (overlap <= 0.001f)
@@ -635,7 +686,7 @@ namespace WindowsFormsApp1
 
                 obj.Position.Y -= overlap * direction;
                 iterations++;
-            }          
+            }
         }
 
         public bool IsOnFloor(GameObject target)
@@ -650,7 +701,7 @@ namespace WindowsFormsApp1
 
         public Vector2 GetFloorNormal(GameObject target)
         {
-            var ground = GetObjects().FirstOrDefault(o => o is Wall &&
+            var ground = _grid.GetNearbyObjects(target).FirstOrDefault(o => o is Wall &&
               target.BoxCollider.IsColliding(o.BoxCollider) &&
               target.Position.Y + target.Size.Y <= o.Position.Y + 1);
 
@@ -662,7 +713,7 @@ namespace WindowsFormsApp1
 
         public bool CheckWorldColision(GameObject target)
         {
-            var objects = GetObjects();
+            var objects = _grid.GetNearbyObjects(target);
             GameObject current = null;
             for (int i = 0; i < objects.Count; i++)
             {
@@ -684,7 +735,7 @@ namespace WindowsFormsApp1
             return false;
         }
 
-        public bool IsCollidingWith(GameObject a, GameObject b) 
+        public bool IsCollidingWith(GameObject a, GameObject b)
         {
             return a.BoxCollider.IsColliding(b.BoxCollider);
         }
@@ -712,12 +763,35 @@ namespace WindowsFormsApp1
             return null;
         }
 
-        public Vector2 GetDistanceBetweenObjects(GameObject a, GameObject b) 
+        public GameObject GetCollider(GameObject target)
+        {
+            var objects = _grid.GetNearbyObjects(target);
+            GameObject current = null;
+            for (int i = 0; i < objects.Count; i++)
+            {
+                current = objects[i];
+
+                if (current.BoxCollider == target.BoxCollider) continue;
+
+                if (Math.Abs(current.Position.X - target.Position.X) > MainCamera.Size.X + 10 ||
+                    Math.Abs(current.Position.Y - target.Position.Y) > MainCamera.Size.Y + 10)
+                    continue;
+
+                DebugStats.CollisionsCheck++;
+
+                if (target.BoxCollider.IsColliding(current.BoxCollider))
+                    return current;
+            }
+
+            return null;
+        }
+
+        public Vector2 GetDistanceBetweenObjects(GameObject a, GameObject b)
         {
             return a.Position - b.Position;
         }
 
-        public Vector2 GetNormalBetweenObjects(GameObject a, GameObject b) 
+        public Vector2 GetNormalBetweenObjects(GameObject a, GameObject b)
         {
             var normal = (GetDistanceBetweenObjects(a, b));
 
@@ -742,7 +816,7 @@ namespace WindowsFormsApp1
         public Vector2 CurrentMousePosition = Vector2.Zero;
         public Vector2 PreviewsMousePosition = Vector2.Zero;
 
-        public void UpdateMouse(float x, float y) 
+        public void UpdateMouse(float x, float y)
         {
             CurrentMousePosition.X = x;
             CurrentMousePosition.Y = y;
@@ -771,7 +845,7 @@ namespace WindowsFormsApp1
         public float GetScrollWheelDelta()
             => MouseDelta / 120f;
 
-        public void UpdateKeyState(Keys key, bool state) 
+        public void UpdateKeyState(Keys key, bool state)
         {
             if (state)
                 PressedKeys.Add(key);
@@ -808,11 +882,11 @@ namespace WindowsFormsApp1
             return vector;
         }
 
-        public void UpdatePreviewsInputs() 
+        public void UpdatePreviewsInputs()
         {
             PreviewsKeys.Clear();
             PreviewsKeys.UnionWith(PressedKeys);
-            
+
             PreviewMouseButtons.Clear();
             PreviewMouseButtons.UnionWith(PressedMouseButtons);
         }
@@ -897,6 +971,8 @@ namespace WindowsFormsApp1
             if (owner == null || !IsVisible)
                 return;
 
+            DebugStats.VisibileCells++;
+
             bool visible = (owner.Position.X + owner.Size.X >= camera.Position.X &&
                           owner.Position.X < camera.Position.X + camera.Size.X) &&
                          (owner.Position.Y + owner.Size.Y >= camera.Position.Y &&
@@ -906,7 +982,6 @@ namespace WindowsFormsApp1
             {
                 var pos = camera.WorldToScreen(owner.Position);
                 var size = owner.Size * camera.Zoom;
-                DebugStats.VisibileCells++;
                 g.FillRectangle(Brush, pos.X, pos.Y, size.X, size.Y);
                 DebugStats.DrawCells++;
             }
@@ -941,6 +1016,105 @@ namespace WindowsFormsApp1
                 if (current.GraphicsComponent != null)
                     current.GraphicsComponent.Draw(g, camera, current);
             }
+        }
+    }
+
+    public class SpatialGrid
+    {
+        public float CellSize;
+        private int _searchRadius;
+        private Dictionary<Vector2, List<GameObject>> _grid;
+        private List<GameObject> _nearbyCache = new List<GameObject>();
+
+        public SpatialGrid(float cellSize = 64, int searchReadius = 2)
+        {
+            CellSize = cellSize;
+            _searchRadius = searchReadius;
+            _grid = new Dictionary<Vector2, List<GameObject>>();
+        }
+
+        public Vector2 GetCellKey(Vector2 postion)
+        {
+            return new Vector2((int)Math.Floor(postion.X / CellSize),
+                               (int)Math.Floor(postion.Y / CellSize));
+        }
+
+        public void AddObject(GameObject obj)
+        {
+            var key = GetCellKey(obj.Position);
+
+            if (!_grid.ContainsKey(key))
+                _grid.Add(key, new List<GameObject>());
+
+            _grid[key].Add(obj);
+        }
+
+        public void RemoveObject(GameObject obj)
+        {
+            var key = GetCellKey(obj.Position);
+
+            if (!_grid.ContainsKey(key))
+                return;
+
+            var list = _grid[key];
+
+            if (list.Contains(obj))
+            {
+                list.Remove(obj);
+
+                if (list.Count == 0)
+                    _grid.Remove(key);
+            }
+        }
+
+        public void UpdateObjectCell(GameObject obj, Vector2 previewsPosition)
+        {
+            if (obj.Position == previewsPosition)
+                return;
+
+            var oldKey = GetCellKey(previewsPosition);
+            var newKey = GetCellKey(obj.Position);
+
+            if (oldKey == newKey)
+                return;
+
+            if (!_grid.ContainsKey(newKey))
+                _grid.Add(newKey, new List<GameObject>());
+
+            _grid[newKey].Add(obj);
+
+            if (_grid.TryGetValue(oldKey, out var oldList))
+            {
+                if (oldList.Contains(obj))
+                    oldList.Remove(obj);
+
+                if (oldList.Count == 0)
+                    _grid.Remove(oldKey);
+            }
+        }
+
+        public List<GameObject> GetNearbyObjects(GameObject target, int? customRadius = null)
+            => CalculateNearbyObjects(target.Position, customRadius);
+
+        public List<GameObject> GetNearbyObjects(Vector2 position, int? customRadius = null)
+            => CalculateNearbyObjects(position, customRadius);
+
+        private List<GameObject> CalculateNearbyObjects(Vector2 position, int? customRadius = null)
+        {
+            _nearbyCache.Clear();
+            var targetKey = GetCellKey(position);
+            int effectiveRadius = customRadius != null ? customRadius.Value : _searchRadius;
+
+            for (int i = -effectiveRadius; i <= effectiveRadius; i++)
+            {
+                for (int j = -effectiveRadius; j <= effectiveRadius; j++)
+                {
+                    var key = new Vector2(targetKey.X + i, targetKey.Y + j);
+                    if (_grid.TryGetValue(key, out var itens))
+                        _nearbyCache.AddRange(itens);
+                }
+            }
+            return _nearbyCache;
         }
     }
 
