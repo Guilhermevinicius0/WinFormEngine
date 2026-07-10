@@ -51,36 +51,36 @@ This is a study project done purely as a hobby to test my knowledge in C# and my
 
 [BR]
 
-Este projeto tem como objetivo a criação de uma engine não comercial de codigo aberto que possibilite a criação de jogos e simulações físicas em um abiente 2d de forma simples, buscando a sensação de criar scripts em engines comerciais já estabelecidas como Unity, godot e gamemaker
+Este projeto tem como objetivo a criação de uma engine não comercial de código aberto que possibilite a criação de jogos e simulações físicas em um ambiente 2d de forma simples, buscando a sensação de criar scripts em engines comerciais já estabelecidas como Unity, godot e gamemaker
 
 Este é um projeto de estudos feito por puro hobby para testar os meus conhecimentos em c# e minha capacidade de criar abstrações e representar conceitos.
 
 ## Features prontas
 
 - Colisão AABB.
-- Camera proramavel.
-- Mapa editaval.
+- Câmera progamável.
+- Mapa editával.
 - Suporte a inputs de teclado e mouse.
-- otimização de Renderização e fisica através de spatial grid.
-- Renderização otimizada com bitmap e culling de objetos fora da camera.
+- otimização de Renderização e física através de spatial grid.
+- Renderização otimizada com bitmap e culling de objetos fora da câmera.
 - Loop otimizado baseado no tempo idle da fila de mensagem do windows.
 - Menu de debug para métricas em tempo real
-- objetos base para a criação de objetos complexo (como player, enemy, etc..) com suporte a scripts que executam na criação do objeto (OnCreate()), a cada frame caso o objeto se defina como não estático (OnStep(delta)), e quando o objeto é destruido (OnDestroy()).
-- Suporte a indexaxão Z para desenhar em orderns objetos diferentes.
-- Suporte a metodos que aproximam o script ao script das grandes engines como: IsOnFloor(), MoveAndCollide(), GetCenteredPosition(), etc..
+- objetos base para a criação de objetos complexos (como player, enemy, etc..) com suporte a scripts que executam na criação do objeto (OnCreate()), a cada frame caso o objeto se defina como não estático (OnStep(delta)), e quando o objeto é destruido (OnDestroy()).
+- Suporte a indexação Z para desenhar em ordens objetos diferentes.
+- Suporte a métodos que aproximam o script ao script das grandes engines como: IsOnFloor(), MoveAndCollide(), GetCenteredPosition(), etc..
 - Suporte a raycast com parametros de lista para não detectar, lista para filtrar, e colidir no emissor, retorna um raycastResult.
-- Suporte a tags dinamicas para entidades e objetos com busca o(n) para filtrar tipos de objetos como moedas, inimigos ou armaldilhas por exemplo de forma fácil.
+- Suporte a tags dinâmicas para entidades e objetos com busca o(n) para filtrar tipos de objetos como moedas, inimigos ou armadilhas por exemplo de forma fácil.
 
 - Resolução de colisão por eixo com cálculo de overlap.
 
 ## Features Planejadas
 
 - Migrar o sistema de renderização para gpu.
-- Adicionar editoeres visuais para o tileMap, criação de entidades, e janela de script.
-- Adicionar mais metodos de api que facilitam o desenvolvemnto dos scripts como os metodos: MoveAndSlide(), IsOnCeiling(), IsOnWall(), GetLastColliderNormal(), etc..
+- Adicionar editores visuais para o tileMap, criação de entidades, e janela de script.
+- Adicionar mais métodos de api que facilitam o desenvolvimento dos scripts como os metodos: MoveAndSlide(), IsOnCeiling(), IsOnWall(), GetLastColliderNormal(), etc..
 - Gerenciador de cenas.
 - Suporte a serialização e deserialização de cenas.
-- Sistema de particulas.
+- Sistema de partículas.
 - Suporte a sprites e animações.
 - Sistema de som.
 
