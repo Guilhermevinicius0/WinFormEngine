@@ -15,7 +15,6 @@ namespace WindowsFormsApp1
         private Graphics gfxBuffer;
         private Bitmap bmpBuffer;
         private readonly FastLoop _fastLoop;
-        Player player;
 
         public Form1()
         {
@@ -42,63 +41,8 @@ namespace WindowsFormsApp1
             this.MouseUp += (s, e) => _scene.Input.UpdateMouseButtonState(e.Button, false);
             this.MouseWheel += (s, e) => _scene.Input.MouseDelta += e.Delta;
 
-            var tileMap = new TileMap();
-
-            int rowCount = tileMap.Tiles.GetLength(0);
-            int colunmCount = tileMap.Tiles.GetLength(1);
-
-            for (int i = 0; i < rowCount; i++)
-            {
-                for (int j = 0; j < colunmCount; j++)
-                {
-                    if (tileMap.Tiles[i, j] >= 1 && tileMap.Tiles[i, j] < 9)
-                    {
-                        float x = (j + 1) * tileMap.TileSize.X;
-                        float y = ClientRectangle.Height - ((rowCount - i - 1) * tileMap.TileSize.Y);
-
-                        var color = Color.Gray;
-
-                        switch (tileMap.Tiles[i, j])
-                        {
-                            case 1:
-                                color = Color.Chocolate;
-                                break;
-                            case 2:
-                                color = Color.Sienna;
-                                break;
-                            case 3:
-                                color = Color.Gold;
-                                break;
-                            case 4:
-                                color = Color.Green;
-                                break;
-                        }
-
-                        var wall = new Wall(_scene, color,
-                        new Vector2(tileMap.TileSize.X, tileMap.TileSize.Y),
-                        new Vector2(tileMap.TileSize.X, tileMap.TileSize.Y),
-                        new Vector2(x, y));
-
-                        _scene.AddObject(wall, true);
-                    }
-                    else if (tileMap.Tiles[i, j] == 9)
-                    {
-                        float x = (j + 1) * 32;
-                        float y = ClientRectangle.Height - ((rowCount - i - 1) * 33);
-
-                        player = new Player(_scene, Color.Green,
-                            new Vector2(32, 32),
-                            new Vector2(32, 32),
-                            new Vector2(x, y));
-
-                        player.AddTag("player");
-
-                        _scene.AddObject(player);
-                        _scene.MainCamera.AllowFollow = true;
-                        _scene.MainCamera.Target = player;
-                    }
-                }
-            }
+            if (_scene.HasTileMap)
+                _scene.LoadTileMap();
 
             _fastLoop = new FastLoop(WorldUpdate);
         }
@@ -144,7 +88,7 @@ namespace WindowsFormsApp1
                                         new Vector2(x * 34, y * 34));
 
                         wall.ZIndex = 1;
-                        _scene.AddObject(wall, true);
+                        _scene.AddObject(wall);
                     }
                 }
             }
@@ -223,8 +167,8 @@ namespace WindowsFormsApp1
 
         private float _speed = 200f;
 
-        public Player(Scene scene, Color color, Vector2 size, Vector2 collisionSize, Vector2 position)
-          : base(scene, color, size, collisionSize, position)
+        public Player(Scene scene, Color color, Vector2 size, Vector2 collisionSize, Vector2 position, bool isStatic = false)
+          : base(scene, color, size, collisionSize, position, isStatic)
         {
         }
 
@@ -247,7 +191,7 @@ namespace WindowsFormsApp1
 
     public class Wall : Entity
     {
-        public Wall(Scene scene, Color color, Vector2 size, Vector2 collisionSize, Vector2 position) : base(scene, color, size, collisionSize, position)
+        public Wall(Scene scene, Color color, Vector2 size, Vector2 collisionSize, Vector2 position, bool isStatic = true) : base(scene, color, size, collisionSize, position, isStatic)
         {
         }
 
@@ -270,7 +214,7 @@ namespace WindowsFormsApp1
         public bool IsAwake = true;
         public float AwakeDistance = 800f;
 
-        public Entity(Scene scene, Color color, Vector2 size, Vector2 collisionSize, Vector2 position) : base(scene, position, size, collisionSize)
+        public Entity(Scene scene, Color color, Vector2 size, Vector2 collisionSize, Vector2 position, bool isStatic = false) : base(scene, position, size, collisionSize, isStatic)
         {
             GraphicsComponent = new RectangleRender(color);
         }
@@ -323,6 +267,7 @@ namespace WindowsFormsApp1
     public abstract class GameObject : TransformComponent
     {
         public Scene _scene;
+        public readonly bool IsStatic;
 
         public InputComponent Input { get => _scene.Input; }
         public CollisionComponent BoxCollider;
@@ -332,12 +277,13 @@ namespace WindowsFormsApp1
 
         public readonly List<string> Tags = new List<string>();
 
-        public GameObject(Scene scene, Vector2 position, Vector2 size, Vector2 collisionSize)
+        public GameObject(Scene scene, Vector2 position, Vector2 size, Vector2 collisionSize, bool isStatic = false)
         {
             this.BoxCollider = new CollisionComponent(this, collisionSize);
             _scene = scene;
             Position = position;
             Size = size;
+            IsStatic = isStatic;
         }
 
         public abstract void OnCreation();
@@ -433,6 +379,9 @@ namespace WindowsFormsApp1
         public RenderComponent Render = new RenderComponent();
         public InputComponent Input = new InputComponent();
 
+        private TileMap _tileMap = new TileMap();
+        public bool HasTileMap => _tileMap != null;
+
         private readonly List<GameObject> DynamicObjects = new List<GameObject>();
         private readonly List<GameObject> StaticObjects = new List<GameObject>();
         private readonly List<GameObject> AllObjects = new List<GameObject>();
@@ -441,10 +390,10 @@ namespace WindowsFormsApp1
 
         private SpatialGrid _grid = new SpatialGrid();
 
-        private Queue<(GameObject obj, bool IsStatic)> ToAdd = new Queue<(GameObject, bool)>();
+        private Queue<GameObject> ToAdd = new Queue<GameObject>();
         private Queue<GameObject> ToRemove = new Queue<GameObject>();
 
-        private int MaxQueueIterations = 100000; // use -1 to set no limit per frame, low limits drops more fps with massive operations
+        private int MaxQueueIterations = 1000; // use -1 to set no limit per frame, low limits drops more fps with massive operations
 
         public void ProcessPhysics(float delta)
         {
@@ -452,6 +401,11 @@ namespace WindowsFormsApp1
             ProcessObjects(delta);
             MainCamera.Update(delta);
             Input.UpdatePreviewsInputs();
+        }
+
+        public void LoadTileMap()
+        {
+            TileMapLoader.Load(this, _tileMap);
         }
 
         public void ProcessQueues()
@@ -463,33 +417,33 @@ namespace WindowsFormsApp1
 
             for (int i = 0; i < totalToProcess; i++)
             {
+                int index = -1;
                 if (ToAdd.Count > 0)
                 {
-                    var item = ToAdd.Dequeue();
+                    var obj = ToAdd.Dequeue();
 
-                    if (item.IsStatic)
+                    if (obj.IsStatic)
                     {
-                        int index = StaticObjects.BinarySearch(item.obj, Comparer<GameObject>.Create((a, b) => a.ZIndex.CompareTo(b.ZIndex)));
+                        index = StaticObjects.BinarySearch(obj, Comparer<GameObject>.Create((a, b) => a.ZIndex.CompareTo(b.ZIndex)));
 
                         if (index < 0)
                             index = ~index;
 
-                        StaticObjects.Insert(index, item.obj);
-                        AllObjects.Insert(index, item.obj);
+                        StaticObjects.Insert(index, obj);
                     }
                     else
                     {
-                        int index = DynamicObjects.BinarySearch(item.obj, Comparer<GameObject>.Create((a, b) => a.ZIndex.CompareTo(b.ZIndex)));
+                        index = DynamicObjects.BinarySearch(obj, Comparer<GameObject>.Create((a, b) => a.ZIndex.CompareTo(b.ZIndex)));
 
                         if (index < 0)
                             index = ~index;
 
-                        DynamicObjects.Insert(index, item.obj);
-                        AllObjects.Insert(index, item.obj);
+                        DynamicObjects.Insert(index, obj);
                     }
 
-                    _grid.AddObject(item.obj);
-                    item.obj.OnCreation();
+                    AllObjects.Insert(index, obj);
+                    _grid.AddObject(obj);
+                    obj.OnCreation();
                     DebugStats.Objects++;
                 }
 
@@ -534,9 +488,9 @@ namespace WindowsFormsApp1
             }
         }
 
-        public void AddObject(GameObject obj, bool IsStatic = false)
+        public void AddObject(GameObject obj)
         {
-            ToAdd.Enqueue((obj, IsStatic));
+            ToAdd.Enqueue(obj);
         }
 
         public void DestroyObject(GameObject obj)
@@ -1004,6 +958,7 @@ namespace WindowsFormsApp1
 
         public abstract void Draw(Graphics g, Camera camera, GameObject Owner);
     }
+
     public class RenderComponent
     {
         public void Draw(Graphics g, Camera camera, List<GameObject> objects)
@@ -1121,6 +1076,42 @@ namespace WindowsFormsApp1
     public class TileMap
     {
         public Vector2 TileSize = new Vector2(34, 34);
+        public Vector2 PlayerSize = new Vector2(32, 32);
+
+        public enum TileTypes
+        {
+            None = 0,
+            Floor = 1,
+            Bricks = 2,
+            QuestionBlocks = 3,
+            GreenPipes = 4,
+            Player = 9
+        }
+
+        internal class objectsFactory
+        {
+            public static Dictionary<TileTypes, Color> TileColors = new Dictionary<TileTypes, Color>()
+            {
+                {TileTypes.Floor, Color.Chocolate},
+                {TileTypes.Bricks, Color.Sienna},
+                {TileTypes.QuestionBlocks, Color.Gold},
+                {TileTypes.GreenPipes, Color.Green},
+                {TileTypes.Player, Color.LimeGreen}
+            };
+
+            public static GameObject BuildObject(TileTypes type, Scene scene, Vector2 size, Vector2 hitboxSize, Vector2 position)
+            {
+                if (type == TileTypes.None)
+                    return null;
+
+                if (type != TileTypes.Player)
+                    return new Wall(scene, TileColors[type], size, hitboxSize, position, true);
+
+                else
+                    return new Player(scene, TileColors[type], size, hitboxSize, position, false);
+            }
+        }
+
         public int[,] Tiles =
         {
             {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
@@ -1141,5 +1132,46 @@ namespace WindowsFormsApp1
             {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
             {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
         };
+    }
+
+    public static class TileMapLoader
+    { 
+        public static void Load(Scene scene, TileMap tileMap)
+        {
+            int rowCount = tileMap.Tiles.GetLength(0);
+            int colunmCount = tileMap.Tiles.GetLength(1);
+
+            for (int i = 0; i < rowCount; i++)
+            {
+                for (int j = 0; j < colunmCount; j++)
+                {
+                    int currentTile = tileMap.Tiles[i, j];
+
+                    float x = (j + 1) * tileMap.TileSize.X;
+                    float y = scene.Screen.GetSize().Y - ((rowCount - i - 1) * tileMap.TileSize.Y);
+
+                    var obj = TileMap.objectsFactory.BuildObject(
+                                (TileMap.TileTypes)currentTile,
+                                scene, 
+                                new Vector2(tileMap.TileSize.X, tileMap.TileSize.Y),
+                                new Vector2(tileMap.TileSize.X, tileMap.TileSize.Y),
+                                new Vector2(x, y));
+
+                    if (obj == null)
+                        continue;
+
+                    if (obj is Player player) 
+                    {
+                        player.Size = tileMap.PlayerSize;
+                        player.BoxCollider.Size = tileMap.PlayerSize;
+                        player.AddTag("player");
+                        scene.MainCamera.AllowFollow = true;
+                        scene.MainCamera.Target = player;
+                    }
+
+                    scene.AddObject(obj);
+                }
+            }
+        }
     }
 }
